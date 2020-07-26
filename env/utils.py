@@ -4,15 +4,22 @@ import torch
 import networkx as nx
 from torch_geometric.utils.convert import to_networkx
 
-import pydot
+# import pydot
 import matplotlib.pyplot as plt
 from networkx.drawing.nx_pydot import graphviz_layout
 import numpy as np
 
+# task type 0: POTRF 1:SYRK 2:TRSM 3: GEMMS
 
-durations_cpu = [24, 52, 57, 95, 0]
-durations_gpu = [11, 8.3, 2.5, 3.3, 0]
-durations_gpu2 = [12, 1, 3, 2, 0]
+# durations_cpu = [18, 57, 52, 95, 0]
+# durations_gpu = [11, 2, 8, 3, 0]
+
+durations_cpu = [1, 3, 3, 6, 0]
+durations_gpu = [11, 2, 8, 3, 0]
+
+# durations_cpu = [24, 52, 57, 95, 0]
+# durations_gpu2 = [12, 1, 3, 2, 0]
+
 simple_durations = [1, 3, 3, 6, 0]
 
 colors = {0: [0, 0, 0], 1: [230, 190, 255], 2: [170, 255, 195], 3: [255, 250, 200],
@@ -25,7 +32,7 @@ color_normalized = {i: list(np.array(colors[i])/255) for i in colors}
 
 class Task():
 
-    def __init__(self, barcode):
+    def __init__(self, barcode, noise=False):
         """
         task_type 0: POTRF 1:SYRK 2:TRSM 3: GEMMS
         """
@@ -33,32 +40,37 @@ class Task():
         self.type = barcode[0]
         self.duration_cpu = durations_cpu[self.type]
         self.duration_gpu = durations_gpu[self.type]
-        self.durations = [durations_cpu[self.type], durations_gpu[self.type]]
         self.barcode = barcode
+        self.durations = [durations_cpu[self.type], durations_gpu[self.type]]
+        if noise and self.type == 3:
+            if np.random.uniform() < 1/15:
+                self.durations[-1] *= 3
 
 
 class TaskGraph(Data):
 
     def __init__(self, x, edge_index, task_list):
         Data.__init__(self, x, edge_index)
-        self.task_list = task_list
+        self.task_list = np.array(task_list)
+        self.task_to_num = {v: k for (k, v) in enumerate(self.task_list)}
 
     def render(self, root=None):
-        graph = self.data
-        task_list = [t.barcode for t in self.task_list[graph.x]]
-
+        # graph = self.data
+        task_list = [t.barcode for t in self.task_list]
+        graph = to_networkx(Data(self.x, self.edge_index.contiguous()))
         pos = graphviz_layout(graph, prog='dot', root=root)
-        # pos = graphviz_layout(G, prog='tree')
+        # pos = graphviz_layout(G, prog='twopi')
         node_color = [color_normalized[task[0]] for task in task_list]
-        plt.figure(figsize=(8, 8))
+        # plt.figure(figsize=(8, 8))
         nx.draw_networkx_nodes(graph, pos, node_color=node_color)
         nx.draw_networkx_edges(graph, pos)
 
-    def remove_nodes(self, node_list):
-        mask_node = torch.logical_not(isin(self.x, node_list))
-        self.x = self.x[mask_node]
-        mask_edge = isin(self.edge_index[:, 0], node_list) or isin(self.edge_index[:, 1], node_list)
-        self.edge_index = self.edge_index[torch.logical_not(mask_edge)]
+    def remove_edges(self, node_list):
+        # mask_node = torch.logical_not(isin(self.x, node_list))
+        # self.x = self.x[mask_node]
+        mask_edge = isin(self.edge_index[0, :], torch.tensor(node_list)) | \
+                    isin(self.edge_index[1, :], torch.tensor(node_list))
+        self.edge_index = self.edge_index[:, torch.logical_not(mask_edge)]
 
 
 class Node():
@@ -78,7 +90,7 @@ class Cluster():
 
 
     def render(self):
-        edges_list = [(u, v, {"cost": w}) for (u, v, w) in self.communication_cost]
+        edges_list = [(u, v, {"cost": w}) for (u, v, w) in enumerate(self.communication_cost)]
         colors = ["k" if node_type == 0 else "red" for node_type in self.node_types]
         G = nx.Graph()
         G.add_nodes_from(list(range(len(self.node_types))))
@@ -91,7 +103,7 @@ class Cluster():
         nx.draw_networkx_edge_labels(G, pos=pos)
 
 
-def succASAP(task, n):
+def succASAP(task, n, noise):
     tasktype = task.type
     i = task.barcode[1]
     j = task.barcode[2]
@@ -101,7 +113,7 @@ def succASAP(task, n):
         if i < n:
             for j in range(i + 1, n + 1, 1):
                 y = (2, i, j, 0)
-                listsucc.append(Task(y))
+                listsucc.append(Task(y, noise))
         else:
             y = (4, 0, 0, 0)
             listsucc.append(Task(y))
@@ -112,29 +124,64 @@ def succASAP(task, n):
             listsucc.append(Task(y))
         else:
             y = (0, i, 0, 0)
-            listsucc.append(Task(y))
+            listsucc.append(Task(y, noise))
 
     if tasktype == 2:
         if i <= n - 1:
             for k in range(i + 1, j):
                 y = (3, k, j, i)
-                listsucc.append(Task(y))
+                listsucc.append(Task(y, noise))
             for k in range(j + 1, n + 1):
                 y = (3, j, k, i)
-                listsucc.append(Task(y))
+                listsucc.append(Task(y, noise))
             y = (1, j, i, 0)
-            listsucc.append(Task(y))
+            listsucc.append(Task(y, noise))
 
     if tasktype == 3:
         if k < i - 1:
             y = (3, i, j, k + 1)
-            listsucc.append(Task(y))
+            listsucc.append(Task(y, noise))
         else:
             y = (2, i, j, 0)
-            listsucc.append(Task(y))
+            listsucc.append(Task(y, noise))
 
     return listsucc
 
+
+def CPAndWorkBelow(x, n, durations):
+    x_bar = x.barcode
+    C = durations[0]
+    S = durations[1]
+    T = durations[2]
+    G = durations[3]
+    ReadyTasks = []
+    ReadyTasks.append(x_bar)
+    Seen = []
+    ToVisit = []
+    ToVisit.append(x_bar)
+    TotalWork = durations[x_bar[0]]
+    CPl = 0
+    # while len(ToVisit) > 0:
+    #     for t in ToVisit:
+    #         for succ in succASAP(Task(t), n):
+    #             if succ not in Seen:
+    #                 succ = succ.barcode
+    #                 TotalWork = TotalWork + durations[succ[0]]
+    #                 Seen.append(succ)
+    #                 ToVisit.append(succ)
+    #         ToVisit.remove(t)
+
+    tasktype = x_bar[0]
+    if tasktype == 0:
+        CPl = C + (n - x_bar[1]) * (T + S + C)
+    if tasktype == 1:
+        CPl = (x_bar[1] - x_bar[2]) * S + C + (n - x_bar[1]) * (T + S + C)
+    if tasktype == 2:
+        CPl = (x_bar[2] - x_bar[1] - 1) * (T + G) + (n - x_bar[2] + 1) * (T + S + C)
+    if tasktype == 3:
+        CPl = (x_bar[1] - x_bar[3]) * G + (x_bar[2] - x_bar[1] - 1) * (T + G) + (n - x_bar[2] + 1) * (T + S + C)
+
+    return (CPl, TotalWork)
 
 def _add_task(dic_already_seen, list_to_process, task):
     if task.barcode in dic_already_seen:
@@ -152,17 +199,17 @@ def _add_node(dic_already_seen, list_to_process, node):
         list_to_process.append(node)
 
 
-def compute_graph(n):
+def compute_graph(n, noise=False):
     root_nodes = []
     TaskList = {}
     EdgeList = []
 
-    root_nodes.append(Task((0, 1, 0, 0)))
+    root_nodes.append(Task((0, 1, 0, 0), noise))
     TaskList[(0, 1, 0, 0)] = 0
 
     while len(root_nodes) > 0:
         task = root_nodes.pop()
-        list_succ = succASAP(task, n)
+        list_succ = succASAP(task, n, noise)
         for t_succ in list_succ:
             _add_task(TaskList, root_nodes, t_succ)
             EdgeList.append((TaskList[task.barcode], TaskList[t_succ.barcode]))
@@ -184,6 +231,26 @@ def compute_graph(n):
 def isin(ar1, ar2):
     return (ar1[..., None] == ar2).any(-1)
 
+def remove_nodes(edge_index, mask, num_nodes):
+    r"""Removes the isolated nodes from the graph given by :attr:`edge_index`
+    with optional edge attributes :attr:`edge_attr`.
+    In addition, returns a mask of shape :obj:`[num_nodes]` to manually filter
+    out isolated node features later on.
+    Self-loops are preserved for non-isolated nodes.
+    Args:
+        edge_index (LongTensor): The edge indices.
+        edge_attr (Tensor, optional): Edge weights or multi-dimensional
+            edge features. (default: :obj:`None`)
+        num_nodes (int, optional): The number of nodes, *i.e.*
+            :obj:`max_val + 1` of :attr:`edge_index`. (default: :obj:`None`)
+    :rtype: (LongTensor, Tensor, BoolTensor)
+    """
+
+    assoc = torch.full((num_nodes,), -1, dtype=torch.long, device=mask.device)
+    assoc[mask] = torch.arange(mask.sum(), device=assoc.device)
+    edge_index = assoc[edge_index]
+
+    return edge_index
 
 def compute_sub_graph(data, root_nodes, window):
     """
@@ -211,7 +278,18 @@ def compute_sub_graph(data, root_nodes, window):
         already_seen[list_succ] = 1
         root_nodes = list_succ
         i += 1
-    return Data(torch.nonzero(already_seen), edge_list)
+
+    assoc = torch.full((len(data.x),), -1, dtype=torch.long)
+    assoc[already_seen] = torch.arange(already_seen.sum())
+
+    node_num = torch.nonzero(already_seen)
+    new_x = data.x[already_seen]
+    new_edge_index = remove_nodes(data.edge_index, already_seen, len(data.x))
+    mask_edge = (new_edge_index != -1).all(dim=0)
+    new_edge_index = new_edge_index[:, mask_edge]
+    new_task_list = data.task_list[already_seen]
+
+    return TaskGraph(new_x, new_edge_index, new_task_list), node_num
 
 
 def taskGraph2SLC(taskGraph, save_path):

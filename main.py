@@ -3,28 +3,47 @@ import time
 from collections import deque
 from pprint import pprint
 from tqdm import tqdm
+import json
 
-from PPO.vectorized_env import VectorEnv, make_envs
-from PPO.storage import RolloutStorage
-from PPO import PPO
+from ppo.vectorized_env import VectorEnv, make_envs
+from vec_env import SubprocVecEnv
+from ppo.storage import RolloutStorage
+from ppo import PPO
 
-from PPO import utils
-from PPO.policy import Policy
+from ppo import utils
+from ppo.policy import Policy
+from ppo import PPO
+from ppo import A2C_ACKTR
+from ppo.evaluation import evaluate
 
-from PPO.evaluation import evaluate
-
+import multiprocessing
 from model import *
 from env import CholeskyTaskGraph
 from config import config_enhanced
 
 from torch.utils.tensorboard import SummaryWriter
+from log_utils import set_writer_dir, name_dir
 
-writer = SummaryWriter()
 
 def main():
+
+    from config import config_enhanced
+    writer = SummaryWriter(os.path.join('runs', name_dir(config_enhanced)))
+
+    torch.multiprocessing.freeze_support()
+
     print("Current config_enhanced is:")
     pprint(config_enhanced)
     writer.add_text("config", str(config_enhanced))
+
+    save_path = str(writer.get_logdir())
+    try:
+        os.makedirs(save_path)
+    except OSError:
+        pass
+
+    # with open(os.path.join(save_path, "config.json"), 'w') as outfile:
+    #     json.dump(config_enhanced, outfile)
 
     torch.manual_seed(config_enhanced['seed'])
     torch.cuda.manual_seed_all(config_enhanced['seed'])
@@ -42,29 +61,45 @@ def main():
         device = torch.device('cpu')
         print("using CPU")
 
+    if config_enhanced['num_processes'] == "num_cpu":
+        num_processes = multiprocessing.cpu_count() - 1
+    else:
+        num_processes = config_enhanced['num_processes']
+
     # if torch.cuda.device_count() > 1:
     #     print("Let's use", torch.cuda.device_count(), "GPUs!")
     #     # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
     #     model = torch.nn.DataParallel(model)
 
-    env = CholeskyTaskGraph(**config_enhanced['world_settings'])
-    envs = VectorEnv(env, config_enhanced["num_processes"])
+    env = CholeskyTaskGraph(**config_enhanced['env_settings'])
+    envs = VectorEnv(env, num_processes)
     envs.reset()
 
-    model = Net(**config_enhanced["network_parameters"])
+    model = SimpleNet(**config_enhanced["network_parameters"])
     if config_enhanced["model_path"]:
         model.load_state_dict(torch.load(config_enhanced['model_path']))
 
     actor_critic = Policy(model, envs.action_space, config_enhanced)
     actor_critic = actor_critic.to(device)
 
-    PPO_settings = config_enhanced['PPO_settings']
-    agent = PPO(
-        actor_critic,
-        **PPO_settings)
+    if config_enhanced['agent'] == 'PPO':
+        print("using PPO")
+        agent_settings = config_enhanced['PPO_settings']
+        agent = PPO(
+            actor_critic,
+            **agent_settings)
 
-    rollouts = RolloutStorage(config_enhanced['nbatch'], config_enhanced['num_processes'],
-                              envs.envs[0].observation_space.shape, envs.action_space)
+    elif config_enhanced['agent'] == 'A2C':
+        print("using A2C")
+        agent_settings = config_enhanced['A2C_settings']
+        agent = A2C_ACKTR(
+            actor_critic,
+            **agent_settings)
+
+    rollouts = RolloutStorage(config_enhanced['trajectory_length'], num_processes,
+                              env_example.observation_space.shape, env_example.action_space)
+
+
 
     obs = envs.reset()
     obs = torch.tensor(obs, device=device)
@@ -75,7 +110,7 @@ def main():
 
     start = time.time()
     num_updates = int(
-        config_enhanced['num_env_steps']) // config_enhanced['nbatch'] // config_enhanced['num_processes']
+        config_enhanced['num_env_steps']) // config_enhanced['trajectory_length'] // num_processes
     for j in range(num_updates):
 
         if config_enhanced['use_linear_lr_decay']:
@@ -83,7 +118,7 @@ def main():
             utils.update_linear_schedule(
                 agent.optimizer, j, num_updates, config_enhanced['network']['lr'])
 
-        for step in tqdm(range(config_enhanced['nbatch'])):
+        for step in tqdm(range(config_enhanced['trajectory_length'])):
             # Sample actions
             with torch.no_grad():
                 value, action, action_log_prob = actor_critic.act(
@@ -96,7 +131,7 @@ def main():
             reward = torch.tensor(reward, device=device).unsqueeze(-1)
             done = torch.tensor(done, device=device)
 
-            n_step = (j * config_enhanced['nbatch'] + step) * config_enhanced['num_processes']
+            n_step = (j * config_enhanced['trajectory_length'] + step) * num_processes
             for info in infos:
                 if 'episode' in info.keys():
                     reward_episode = info['episode']['r']
@@ -158,3 +193,4 @@ def main():
 if __name__ == "__main__":
     main()
 
+# TODO add asap embeddings
