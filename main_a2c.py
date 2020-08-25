@@ -1,11 +1,13 @@
 from env import CholeskyTaskGraph
 from a2c import A2C
 from a2c import *
-from model import Net, SimpleNet
+from model import Net, SimpleNet, SimpleNet2, ResNetG, SimpleNetMax
 from config import config_enhanced
 from torch.utils.tensorboard import SummaryWriter
+from log_utils import set_writer_dir, name_dir
+import os
 
-writer = SummaryWriter()
+writer = SummaryWriter(os.path.join('runs', name_dir(config_enhanced)))
 
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"   # see issue #152
 # os.environ["CUDA_VISIBLE_DEVICES"] = config_enhanced["GPU_id"]
@@ -18,7 +20,9 @@ env = CholeskyTaskGraph(**config_enhanced['env_settings'])
 # env.reset()
 
 # model = Net
-model = SimpleNet
+# model = SimpleNet
+model = ResNetG
+# model = SimpleNetMax
 
 agent = A2C(config_enhanced, env, model=model, writer=writer)
 

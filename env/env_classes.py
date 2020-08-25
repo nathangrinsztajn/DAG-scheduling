@@ -52,6 +52,12 @@ class CholeskyTaskGraph(gym.Env):
 
         self.ready_tasks = [0]
         self.processed = {}
+
+        if self.noise > 0:
+            for i in range(self.task_data.num_nodes):
+                self.task_data.task_list[i].durations[1] = self.task_data.task_list[i].duration_gpu + np.random.normal(0, self.noise)
+
+
         return self._compute_state()
 
     def step(self, action, render_before=False, render_after=False):
@@ -200,11 +206,24 @@ class CholeskyTaskGraph(gym.Env):
         cpl = cpl.unsqueeze(-1)
 
         # add node type
-        node_type = torch.ones(tasks.shape[0]) * self.cluster.node_types[self.current_proc]
-        node_type = node_type.unsqueeze((-1))
+        # node_type = torch.ones(tasks.shape[0]) * self.cluster.node_types[self.current_proc]
+        # node_type = node_type.unsqueeze((-1))
 
-        return (torch.cat((n_succ, n_pred, one_hot_type, ready, running.unsqueeze(-1).float(), remaining_time, cpl), dim=1),
+        if self.current_proc > 3:
+            print("what")
+
+        return (torch.cat((n_succ/10, n_pred/10, one_hot_type, ready, running.unsqueeze(-1).float(), remaining_time/10, cpl), dim=1),
                 ready)
+
+        # return (torch.cat((n_succ/10, n_pred/10, one_hot_type, ready, running.unsqueeze(-1).float(), remaining_time/10), dim=1),
+        #         ready)
+
+        # return (torch.cat((n_succ, n_pred, one_hot_type, ready, running.unsqueeze(-1).float(), remaining_time, cpl), dim=1),
+        #         ready)
+
+        # return (torch.cat((n_succ, n_pred, one_hot_type, ready, running.unsqueeze(-1).float(), remaining_time), dim=1),
+        #         ready)
+
         # return cpl, ready
 
         # return (torch.cat((one_hot_type, ready, running.unsqueeze(-1).float(), remaining_time, cpl, node_type), dim=1),
@@ -250,7 +269,7 @@ class CholeskyTaskGraph(gym.Env):
         # pos = graphviz_layout(G, prog='tree')
         node_color = [color_task(task[0].item()) for task in node_num]
         # plt.figure(figsize=(8, 8))
-        nx.draw_networkx_nodes(graph, pos, node_color=node_color, )
+        nx.draw_networkx_nodes(graph, pos, node_color=node_color)
         nx.draw_networkx_edges(graph, pos)
         labels = {}
         for i, task in enumerate(node_num):
@@ -311,8 +330,8 @@ class CholeskyTaskGraph(gym.Env):
         def avg(a, b):
             return (a + b) / 2.0
 
-        P = env.p
-        data, compl_data = get_data(env)
+        P = self.p
+        data, compl_data = get_data(self)
         if flip:
             data = data[-1::-1, :]
             compl_data = compl_data[-1::-1]
@@ -330,7 +349,7 @@ class CholeskyTaskGraph(gym.Env):
             while x < len(row):
                 col = row[x]
                 if col != -1:
-                    shift = Task([col]).durations[env.cluster.node_types[y]]
+                    shift = Task([col]).durations[self.cluster.node_types[y]]
                     indices = indices_in_row[i]
                 else:
                     x = x + 1
@@ -369,34 +388,35 @@ class CholeskyTaskGraph(gym.Env):
             plt.savefig(fig_file)
         return
 
-# if __name__ == "__main__":
-#     import torch
-#     from env import CholeskyTaskGraph
-#     import networkx as nx
-#     from torch_geometric.utils.convert import to_networkx
+if __name__ == "__main__":
+    import torch
+    from env import CholeskyTaskGraph
+    import networkx as nx
+    from torch_geometric.utils.convert import to_networkx
+
+    import pydot
+    import matplotlib.pyplot as plt
+    from networkx.drawing.nx_pydot import graphviz_layout
+    import numpy as np
+
+    from model import *
 #
-#     import pydot
-#     import matplotlib.pyplot as plt
-#     from networkx.drawing.nx_pydot import graphviz_layout
-#     import numpy as np
-#
-#     from model import *
-#
-#     env = CholeskyTaskGraph(8, np.array([0,0,1,1]), 1)
+    env = CholeskyTaskGraph(8, np.array([1,1,1,1]), 1, noise=2)
 #     print(len(env.task_data.x))
-#     obs = env.reset()
-#     done = False
-#     env.render()
-#     env.step(0, render_before=True, render_after=True)
-#     env.render()
-#     env.step(1, render_before=True, render_after=True)
-#     env.render()
-#     # env.step(2, render_before=True, render_after=True)
-#     # # env.render()
-#     # env.step(-1, render_before=True, render_after=True)
-#     # # env.render()
-#     # env.step(-1, render_before=True, render_after=True)
-#     # # env.render()
+    obs = env.reset()
+    obs = env.reset()
+    done = False
+    env.render()
+    env.step(0, render_before=True, render_after=True)
+    env.render()
+    env.step(1, render_before=True, render_after=True)
+    env.render()
+    # env.step(2, render_before=True, render_after=True)
+    # # env.render()
+    # env.step(-1, render_before=True, render_after=True)
+    # # env.render()
+    # env.step(-1, render_before=True, render_after=True)
+    # # env.render()
 #     while not done:
 #         action = env.ready_tasks[0]
 #         observation, reward, done, info = env.step(action)

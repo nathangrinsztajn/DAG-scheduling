@@ -32,7 +32,7 @@ color_normalized = {i: list(np.array(colors[i])/255) for i in colors}
 
 class Task():
 
-    def __init__(self, barcode, noise=False):
+    def __init__(self, barcode, noise=0):
         """
         task_type 0: POTRF 1:SYRK 2:TRSM 3: GEMMS
         """
@@ -42,9 +42,11 @@ class Task():
         self.duration_gpu = durations_gpu[self.type]
         self.barcode = barcode
         self.durations = [durations_cpu[self.type], durations_gpu[self.type]]
-        if noise and self.type == 3:
-            if np.random.uniform() < 1/15:
-                self.durations[-1] *= 3
+        # if noise and self.type == 3:
+        #     if np.random.uniform() < 1/15:
+        #         self.durations[-1] *= 3
+        if noise > 0:
+            self.durations[-1] += np.max([np.random.normal(0, noise), -2])
 
 
 class TaskGraph(Data):
@@ -222,7 +224,7 @@ def compute_graph(n, noise=False):
 
     task_array = []
     for (k, v) in TaskList.items():
-        task_array.append(Task(k))
+        task_array.append(Task(k, noise=noise))
     return TaskGraph(x=torch.tensor(embeddings, dtype=torch.float),
                 edge_index=torch.tensor(EdgeList).t().contiguous(), task_list=task_array)
     # return data, task_array

@@ -3,7 +3,7 @@ import multiprocessing
 import numpy as np
 #
 # # Computing env
-seed = 42
+seed = 46
 # cuda_deterministic = False
 num_cores = multiprocessing.cpu_count()-1
 print("using {} CPUs".format(num_cores))
@@ -21,8 +21,11 @@ num_processes_eval = "num_cpu"
 optimizer = None
 
 value_loss_coef = 0.5
-entropy_coef = 0.005# 0.005
+entropy_coef = 0.002
+# entropy_coef = 0.0
 lr = 10 ** -2
+# lr = 10 ** -3
+
 eps = 10 ** -1
 max_grad_norm = 10
 acktr = False
@@ -35,14 +38,18 @@ gamma = 0.99
 # use_gae = True
 # gae_lambda = 0.95
 # use_proper_time_limits = False
-num_env_steps = 10 ** 9
+# num_env_steps = 10 ** 9
+num_env_steps = 10 ** 4
 trajectory_length = 40 # 256
+# trajectory_length = 600
 
 #
 # # logs
 model_path = None
+# model_path = "/home/nathan/PycharmProjects/HPC/runs/n=4_node_types=[1 1 1 1]_window=1_noise=0_seed=None/input_dim=11/2020-08-19_16:09:15/model_74.0.pth"
 # model_path = "/home/ngrinsztajn/HPC/runs/Apr20_01-29-59_chifflot-4.lille.grid5000.fr/model.pth"
-# model_path = "/home/nathan/PycharmProjects/HPC/runs/Apr20_01-11-05_nathan-Latitude-7490/model.pth"
+# model_path = "/home/nathan/PycharmProjects/HPC/runs/n=8_node_types=[1 1 1 1]_window=1_noise=False_seed=None/input_dim=11/2020-08-03_12:00:30/model_168.0.pth"
+
 evaluate_every = 10
 save_interval = 10
 log_interval = 10 ** 2 #4
@@ -97,9 +104,9 @@ agent = 'A2C'
 # World
 env_settings = {
     'n': 8,
-    'node_types': np.array([1,1,1,1]).astype(int),
+    'node_types': np.array([1] * 4).astype(int),
     'window': 1,
-    'noise': True,
+    'noise': 0,
 }
 seed_env = None
 

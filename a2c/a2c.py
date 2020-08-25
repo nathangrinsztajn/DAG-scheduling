@@ -9,6 +9,7 @@ from copy import deepcopy
 import torch
 import torch.nn.functional as F
 from torch import optim
+from torch.optim.lr_scheduler import CyclicLR, LambdaLR
 # from torch_geometric.data import Batch
 
 from joblib import Parallel, delayed
@@ -17,6 +18,7 @@ import gym
 from gym.wrappers import Monitor
 
 from collections import deque
+
 
 def make_seed(seed):
     np.random.seed(seed=seed)
@@ -62,6 +64,10 @@ class A2C:
         else:
             self.optimizer = optim.RMSprop(self.network.parameters(), config['lr'], eps=config['eps'])
         self.writer = writer
+
+        # self.scheduler = CyclicLR(self.optimizer, base_lr=10**-2, max_lr=1 * 10**-2, step_size_up=30)
+        lambda2 = lambda epoch: 0.99 ** epoch
+        self.scheduler = LambdaLR(self.optimizer, lr_lambda=[lambda2])
 
     # Hint: use it during training_batch
     def _returns_advantages(self, rewards, dones, values, next_value):
@@ -175,18 +181,35 @@ class A2C:
                 self.writer.add_scalar('actor_loss', loss_actor, n_step)
                 self.writer.add_scalar('entropy', loss_entropy, n_step)
 
-                current_time = self.evaluate()
+                if self.config["env_settings"]["noise"] > 0:
+                    current_time = np.mean([self.evaluate(), self.evaluate(), self.evaluate()])
+                else:
+                    current_time = self.evaluate()
                 self.writer.add_scalar('test time', current_time, n_step)
                 print("comparing current time: {} with previous best: {}".format(current_time, best_time))
-                if current_time <= best_time:
+                if current_time < best_time:
                     print("saving model")
-                    torch.save(self.network, os.path.join(str(self.writer.get_logdir()), 'model.pth'))
+                    torch.save(self.network, os.path.join(str(self.writer.get_logdir()), 'model_{}.pth'.format(str(current_time))))
                     best_time = current_time
+                    current_tab = []
+                    for _ in range(10):
+                        current_tab.append(self.evaluate())
+                    current_mean = np.mean(current_tab)
 
             if len(reward_log) > 0:
                 end = time.time()
                 print('step ', n_step, '\n reward: ', np.mean(reward_log))
                 print('FPS: ', int(n_step / (end - start)))
+
+            print(self.scheduler.get_lr())
+            self.scheduler.step(int(n_step/batch_size))
+        results_last_model = []
+        if self.config["env_settings"]["noise"] > 0:
+            for _ in range(5):
+                results_last_model.append(self.evaluate())
+        else:
+            results_last_model.append(self.evaluate())
+        return best_time, np.mean(results_last_model), current_mean
 
         #     # Test it every "evaluate_every" steps
         #     if n_step > self.config['evaluate_every'] * (log_ratio + 1):
