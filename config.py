@@ -110,7 +110,7 @@ env_settings = {
 }
 seed_env = None
 
-network_parameters = {"input_dim": 11}
+network_parameters = {"input_dim": 9}
 
 config_enhanced = {
     'model_path': model_path,

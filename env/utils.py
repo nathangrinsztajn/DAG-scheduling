@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 from networkx.drawing.nx_pydot import graphviz_layout
 import numpy as np
 
+import os
+
 # task type 0: POTRF 1:SYRK 2:TRSM 3: GEMMS
 
 # durations_cpu = [18, 57, 52, 95, 0]
@@ -311,3 +313,29 @@ def taskGraph2SLC(taskGraph, save_path):
             file.write('\n')
         # file.write("-1")
 
+def random_ggen_fifo_edges(n_vertex, max_in, max_out):
+    stream = os.popen("ggen generate-graph fifo {:d} {:d} {:d}".format(n_vertex, max_in, max_out))
+    graph = stream.read()
+    out_graph = graph.split('dag')[1].replace('\n', '').replace('\t', '').replace('{', '[[').replace('}', ']]')
+    out_graph = out_graph.replace(' -> ', ', ')
+    out_graph = out_graph.replace(';', '], [')
+    out_graph = eval(out_graph)
+    out_graph.pop()
+    edge_index = np.transpose(np.array(out_graph))
+    return edge_index
+
+def random_ggen_fifo(n_vertex, max_in, max_out, noise=0):
+    edges = random_ggen_fifo_edges(n_vertex, max_in, max_out)
+    n = np.max(edges) + 1
+    tasks = np.random.randint(0, 4, size=n)
+    x = np.zeros((n, 4), dtype=int)
+    x[np.arange(n), tasks] = 1
+    task_list = []
+    for t in tasks:
+        task_list.append(Task([t], noise=noise))
+    return TaskGraph(x=torch.tensor(x, dtype=torch.float),
+                edge_index=torch.tensor(edges), task_list=task_list)
+
+
+# a = random_ggen_fifo(20, 5, 5, 0)
+# print(a)
